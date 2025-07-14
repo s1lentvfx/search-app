@@ -1,6 +1,6 @@
-from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QLineEdit, QPushButton, QLabel, QScrollArea
-from PyQt5.QtGui import QPixmap
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QLineEdit, QPushButton, QLabel, QScrollArea, QProgressBar
+from PyQt5.QtGui import QPixmap, QFont
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
 import sys
 import requests
 from googlesearch import search
@@ -12,6 +12,141 @@ def search_images(query, max_results=3):
     """البحث عن الصور باستخدام DuckDuckGo"""
     with DDGS() as ddgs:
         return [r for r in ddgs.images(query, max_results=max_results)]
+
+class LoadingThread(QThread):
+    """Thread للتحميل مع محاكاة تقدم التحميل"""
+    progress = pyqtSignal(int)
+    status = pyqtSignal(str)
+    finished = pyqtSignal()
+    
+    def run(self):
+        # مراحل التحميل
+        steps = [
+            ("جاري تحميل المكتبات...", 20),
+            ("جاري تهيئة Google Search...", 40),
+            ("جاري تهيئة DuckDuckGo...", 60),
+            ("جاري تحضير الواجهة...", 80),
+            ("جاري الانتهاء...", 100)
+        ]
+        
+        for status_text, progress_value in steps:
+            self.status.emit(status_text)
+            
+            # محاكاة وقت التحميل
+            for i in range(progress_value - (progress_value - 20 if progress_value > 20 else 0), progress_value + 1):
+                time.sleep(0.02)
+                self.progress.emit(i)
+            
+            time.sleep(0.3)  # توقف قصير بين المراحل
+        
+        self.finished.emit()
+
+class LoadingWindow(QWidget):
+    """نافذة التحميل"""
+    def __init__(self):
+        super().__init__()
+        self.initUI()
+        
+    def initUI(self):
+        self.setWindowTitle('S1lent Search')
+        self.setFixedSize(450, 200)
+        self.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)
+        
+        # تطبيق ستايل جميل
+        self.setStyleSheet("""
+            QWidget {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, 
+                           stop:0 #2C3E50, stop:1 #3498DB);
+                border-radius: 15px;
+                color: white;
+            }
+            QLabel {
+                background: transparent;
+                color: white;
+            }
+            QProgressBar {
+                border: 2px solid #34495E;
+                border-radius: 10px;
+                text-align: center;
+                background-color: #2C3E50;
+                color: white;
+                font-weight: bold;
+            }
+            QProgressBar::chunk {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                           stop:0 #E74C3C, stop:1 #F39C12);
+                border-radius: 8px;
+            }
+        """)
+        
+        layout = QVBoxLayout()
+        layout.setSpacing(15)
+        layout.setContentsMargins(30, 30, 30, 30)
+        
+        # عنوان البرنامج
+        title = QLabel("S1lent Search")
+        title.setAlignment(Qt.AlignCenter)
+        title.setFont(QFont("Arial", 24, QFont.Bold))
+        layout.addWidget(title)
+        
+        # وصف
+        subtitle = QLabel("Smart Search Engine")
+        subtitle.setAlignment(Qt.AlignCenter)
+        subtitle.setFont(QFont("Arial", 12))
+        subtitle.setStyleSheet("color: #BDC3C7; margin-bottom: 10px;")
+        layout.addWidget(subtitle)
+        
+        # نص حالة التحميل
+        self.status_label = QLabel("جاري البدء...")
+        self.status_label.setAlignment(Qt.AlignCenter)
+        self.status_label.setFont(QFont("Arial", 11))
+        layout.addWidget(self.status_label)
+        
+        # شريط التقدم
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setFixedHeight(20)
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        layout.addWidget(self.progress_bar)
+        
+        # نص الإصدار
+        version_label = QLabel("v1.0")
+        version_label.setAlignment(Qt.AlignCenter)
+        version_label.setFont(QFont("Arial", 9))
+        version_label.setStyleSheet("color: #95A5A6; margin-top: 5px;")
+        layout.addWidget(version_label)
+        
+        self.setLayout(layout)
+        self.center()
+        
+        # بدء التحميل
+        self.loading_thread = LoadingThread()
+        self.loading_thread.progress.connect(self.update_progress)
+        self.loading_thread.status.connect(self.update_status)
+        self.loading_thread.finished.connect(self.loading_finished)
+        self.loading_thread.start()
+        
+    def center(self):
+        """وسط النافذة في الشاشة"""
+        screen = QApplication.desktop().screenGeometry()
+        size = self.geometry()
+        self.move(int((screen.width() - size.width()) / 2),
+                  int((screen.height() - size.height()) / 2))
+    
+    def update_progress(self, value):
+        """تحديث شريط التقدم"""
+        self.progress_bar.setValue(value)
+    
+    def update_status(self, status):
+        """تحديث نص الحالة"""
+        self.status_label.setText(status)
+    
+    def loading_finished(self):
+        """عند انتهاء التحميل"""
+        self.close()
+        # بدء البرنامج الرئيسي
+        self.main_window = SmartSearchApp()
+        self.main_window.show()
 
 class ImageLoader(QThread):
     """Thread منفصل لتحميل الصور لتجنب تجميد الواجهة"""
@@ -54,14 +189,56 @@ class ImageLoader(QThread):
 class SmartSearchApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("S1lent|Search")
+        self.setWindowTitle("S1lent Search")
         self.setGeometry(100, 100, 700, 800)
+        
+        # تطبيق ستايل جميل للبرنامج الرئيسي
+        self.setStyleSheet("""
+            QMainWindow {
+                background-color: #2C3E50;
+            }
+            QLineEdit {
+                border: 2px solid #3498DB;
+                border-radius: 10px;
+                padding: 10px;
+                font-size: 14px;
+                background-color: white;
+            }
+            QLineEdit:focus {
+                border: 2px solid #E74C3C;
+            }
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                           stop:0 #3498DB, stop:1 #2980B9);
+                border: none;
+                border-radius: 10px;
+                padding: 10px;
+                font-size: 14px;
+                font-weight: bold;
+                color: white;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                           stop:0 #2980B9, stop:1 #1ABC9C);
+            }
+            QPushButton:pressed {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                           stop:0 #1ABC9C, stop:1 #16A085);
+            }
+            QScrollArea {
+                border: none;
+                background-color: white;
+                border-radius: 10px;
+            }
+        """)
         
         # إعداد الواجهة الرئيسية
         main_widget = QWidget()
         self.setCentralWidget(main_widget)
         
         layout = QVBoxLayout()
+        layout.setSpacing(10)
+        layout.setContentsMargins(20, 20, 20, 20)
         main_widget.setLayout(layout)
         
         # مربع البحث
@@ -72,7 +249,7 @@ class SmartSearchApp(QMainWindow):
         layout.addWidget(self.search_input)
         
         # زر البحث
-        self.search_button = QPushButton("Search")
+        self.search_button = QPushButton("🔍 Search")
         self.search_button.setFixedHeight(40)
         self.search_button.clicked.connect(self.perform_search)
         layout.addWidget(self.search_button)
@@ -88,6 +265,9 @@ class SmartSearchApp(QMainWindow):
         
         # قائمة لتتبع threads التحميل
         self.image_loaders = []
+        
+        # التركيز على مربع البحث
+        self.search_input.setFocus()
         
     def clear_results(self):
         """مسح النتائج القديمة"""
@@ -199,7 +379,7 @@ class SmartSearchApp(QMainWindow):
                 img_layout.addWidget(img_label)
                 
                 # إضافة رابط الصورة
-                url_label = QLabel(f"<a href='{img_url}' style='color: #666; font-size: 12px;'>Downloade</a>")
+                url_label = QLabel(f"<a href='{img_url}' style='color: #666; font-size: 12px;'>Download</a>")
                 url_label.setOpenExternalLinks(True)
                 url_label.setAlignment(Qt.AlignCenter)
                 img_layout.addWidget(url_label)
@@ -243,6 +423,9 @@ class SmartSearchApp(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    window = SmartSearchApp()
-    window.show()
+    
+    # بدء شاشة التحميل
+    loading_window = LoadingWindow()
+    loading_window.show()
+    
     sys.exit(app.exec_())
